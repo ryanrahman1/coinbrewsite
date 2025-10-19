@@ -20,6 +20,7 @@ import {
   TableBody,
   TableCell,
 } from "@/components/ui/table"
+import { cacheFetch } from "@/lib/idbCache"
 
 type PortfolioCoin = {
   coin_id: number
@@ -59,6 +60,7 @@ export default function PortfolioPage() {
   const [loadingPortfolio, setLoadingPortfolio] = useState(true)
   const [loadingTrades, setLoadingTrades] = useState(true)
 
+  // Retrieve username from cookie
   useEffect(() => {
     const match = document.cookie.match(/(?:^|;\s*)userData=([^;]*)/)
     if (match) {
@@ -72,6 +74,7 @@ export default function PortfolioPage() {
     }
   }, [])
 
+  // Authenticate user
   useEffect(() => {
     const token = localStorage.getItem("access_token")
     const userId = localStorage.getItem("user_id")
@@ -84,40 +87,52 @@ export default function PortfolioPage() {
     }
   }, [navigate])
 
-  // Fetch portfolio
+  // Fetch portfolio using cache
   useEffect(() => {
     if (!user) return
-    const fetchPortfolio = async () => {
+
+    async function loadPortfolio() {
       setLoadingPortfolio(true)
       try {
-        const res = await fetch(`https://coinbrew.vercel.app/api/coins/portfolio/${user.id}`)
-        const data = await res.json()
-        setPortfolio(data.portfolio)
+        const data = await cacheFetch<PortfolioData>(`portfolio-${user?.id}`, async () => {
+          const res = await fetch(`https://coinbrew.vercel.app/api/coins/portfolio/${user?.id}`)
+          if (!res.ok) throw new Error("Failed to fetch portfolio")
+          const json = await res.json()
+          return json.portfolio
+        })
+        setPortfolio(data)
       } catch (err) {
-        console.error("Failed to fetch portfolio:", err)
+        console.error("Failed to load portfolio:", err)
       } finally {
         setLoadingPortfolio(false)
       }
     }
-    fetchPortfolio()
+
+    loadPortfolio()
   }, [user])
 
-  // Fetch recent trades
+  // Fetch recent trades using cache
   useEffect(() => {
     if (!user) return
-    const fetchTrades = async () => {
+
+    async function loadTrades() {
       setLoadingTrades(true)
       try {
-        const res = await fetch(`https://coinbrew.vercel.app/api/coins/trades/${user.id}?limit=10`)
-        const data = await res.json()
-        setTrades(data.trades ?? [])
+        const data = await cacheFetch<Trade[]>(`trades-${user?.id}`, async () => {
+          const res = await fetch(`https://coinbrew.vercel.app/api/coins/trades/${user?.id}?limit=10`)
+          if (!res.ok) throw new Error("Failed to fetch trades")
+          const json = await res.json()
+          return json.trades ?? []
+        })
+        setTrades(data)
       } catch (err) {
-        console.error("Failed to fetch trades:", err)
+        console.error("Failed to load trades:", err)
       } finally {
         setLoadingTrades(false)
       }
     }
-    fetchTrades()
+
+    loadTrades()
   }, [user])
 
   if (!loggedIn) return null

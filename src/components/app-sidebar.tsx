@@ -54,11 +54,6 @@ const data = {
       icon: Store,
     },
     {
-      title: "Leaderboard",
-      url: "#/leaderboard",
-      icon: Trophy,
-    },
-    {
       title: "Portfolio",
       url: "#/portfolio",
       icon: Briefcase,

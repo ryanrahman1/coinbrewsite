@@ -2,14 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
-
-import {
-  Card,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { cacheFetch } from "@/lib/idbCache"
 
 interface Coin {
   id: number
@@ -26,39 +20,47 @@ export function SectionCards() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchCoins = async () => {
+    async function loadCoins() {
+      setLoading(true)
       try {
-        setLoading(true)
-        const coinRes = await fetch("https://coinbrew.vercel.app/api/coins/all", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sort_by: "market_cap", limit: 3 }),
+        // Fetch top 3 coins with caching
+        const coinList = await cacheFetch<Coin[]>("top-coins", async () => {
+          const res = await fetch("https://coinbrew.vercel.app/api/coins/all", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sort_by: "market_cap", limit: 3 }),
+          })
+          if (!res.ok) throw new Error("Failed to fetch coins")
+          const data = await res.json()
+          return data.coins
         })
-        const coinData = await coinRes.json()
-        const coins = coinData.coins
 
+        // Fetch usernames for creators individually and cache them
         const coinsWithUsers = await Promise.all(
-          coins.map(async (coin: Coin) => {
-            try {
-              const userRes = await fetch(`https://coinbrew.vercel.app/api/coins/user/${coin.creator_id}`)
-              const userData = await userRes.json()
-              const username = userData.user.username
-              return { ...coin, username }
-            } catch {
-              return { ...coin, username: "unknown" }
-            }
+          coinList.map(async (coin: Coin) => {
+            const username = await cacheFetch<string>(`user-${coin.creator_id}`, async () => {
+              try {
+                const res = await fetch(`https://coinbrew.vercel.app/api/coins/user/${coin.creator_id}`)
+                if (!res.ok) throw new Error("Failed to fetch user")
+                const data = await res.json()
+                return data.user.username
+              } catch {
+                return "unknown"
+              }
+            })
+            return { ...coin, username }
           })
         )
 
         setCoins(coinsWithUsers)
       } catch (err) {
-        console.error("Failed to fetch coins:", err)
+        console.error("Failed to load coins:", err)
       } finally {
         setLoading(false)
       }
     }
 
-    fetchCoins()
+    loadCoins()
   }, [])
 
   if (loading) {

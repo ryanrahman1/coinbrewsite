@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AppSidebar } from "@/components/app-sidebar"
-import {
-  SidebarInset,
-  SidebarProvider,
-} from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { SectionCards } from "@/components/section-cards";
+import { cacheFetch } from "@/lib/idbCache";
 
 type Coin = {
   created_at: string;
@@ -21,49 +19,57 @@ type Coin = {
 type User = {
   id: string;
   access_token: string;
-}
+};
 
 export default function Home() {
   const navigate = useNavigate();
-
   const [loggedIn, setLoggedIn] = useState(false);
   const [user, setUser] = useState<User>();
   const [coins, setCoins] = useState<Coin[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [username, setUsername] = useState("");
 
-
   const formatDate = (dateString: string) => {
-    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+    const options: Intl.DateTimeFormatOptions = { year: "numeric", month: "long", day: "numeric" };
     return new Date(dateString).toLocaleDateString(undefined, options);
   };
 
   const getGreeting = () => {
     const currentHour = new Date().getHours();
-    if (currentHour < 12) {
-      return "Good morning";
-    } else if (currentHour < 18) {
-      return "Good afternoon";
-    } else {
-      return "Good evening";
-    }
+    if (currentHour < 12) return "Good morning";
+    if (currentHour < 18) return "Good afternoon";
+    return "Good evening";
   };
 
   useEffect(() => {
-    const match = document.cookie.match(/(?:^|;\s*)userData=([^;]*)/);
-    if (match) {
+    if (!loggedIn || !user?.id) return;
+
+    const cached = localStorage.getItem("coinbrew_user_info");
+    if (cached) {
+      setUsername(JSON.parse(cached).usern);
+      return;
+    }
+
+    async function fetchUsername() {
       try {
-        const decoded = decodeURIComponent(match[1]);
-        const data = JSON.parse(decoded);
-        if (data?.user?.username) {
-          setUsername(data.user.username);
-        }
+        const res = await fetch(`https://coinbrew.vercel.app/api/coins/user/${user?.id}`);
+        if (!res.ok) throw new Error("Failed to fetch user data");
+
+        const data = await res.json();
+        const usern = data.username;
+        const email = data.email;
+
+        localStorage.setItem("coinbrew_user_info", JSON.stringify({ usern, email }));
+        setUsername(usern);
       } catch (err) {
-        console.error("Failed to parse userData cookie:", err);
+        console.error("Failed to fetch username:", err);
       }
     }
-  }, []);
+
+    fetchUsername();
+  }, [loggedIn, user]);
+
+
 
 
   useEffect(() => {
@@ -71,11 +77,7 @@ export default function Home() {
     const userId = localStorage.getItem("user_id");
 
     if (userId && token) {
-      const userFull: User = {
-        id: userId,
-        access_token: token,
-      };
-      setUser(userFull);
+      setUser({ id: userId, access_token: token });
       setLoggedIn(true);
     } else {
       setLoggedIn(false);
@@ -86,54 +88,31 @@ export default function Home() {
   useEffect(() => {
     if (!loggedIn) return;
 
-    const fetchCoins = async () => {
+    async function fetchCoins() {
+      const res = await fetch("https://coinbrew.vercel.app/api/coins/all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ min_price: 0 }),
+      });
+      if (!res.ok) throw new Error("Failed to fetch coins");
+      return res.json();
+    }
+
+    async function loadCoins() {
       try {
         setLoading(true);
-        const res = await fetch("https://coinbrew.vercel.app/api/coins/all", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ min_price: 0 }),
-        });
-
-        if (!res.ok) throw new Error("Failed to fetch coins");
-
-        const data = await res.json();
+        const data = await cacheFetch("market-coins", fetchCoins);
         setCoins(data.coins);
       } catch (err) {
-        console.error(err);
+        console.error("Error loading market data:", err);
       } finally {
         setLoading(false);
       }
-    };
+    }
 
-    fetchCoins();
+    loadCoins();
   }, [loggedIn]);
 
-
-  //fetch user profile, store in cookie temporarily (1 hour)
-  useEffect(() => {
-    if (!loggedIn) return;
-
-    const fetchProfile = async () => {
-      try {
-        const res = await fetch(`https://coinbrew.vercel.app/api/coins/user/${user?.id}`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
-
-        if (!res.ok) throw new Error("Failed to fetch user profile");
-
-        const data = await res.json();
-
-        //set cookie
-        document.cookie = `userData=${JSON.stringify(data)}; max-age=${60 * 60}; path=/`;
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    fetchProfile();
-  }, [loggedIn, user]);
   if (!loggedIn) return null;
 
   return (
@@ -144,33 +123,23 @@ export default function Home() {
           "--header-height": "calc(var(--spacing) * 12)",
         } as React.CSSProperties
       }
-      className={"dark"}
+      className="dark"
     >
       <AppSidebar variant="inset" />
       <SidebarInset className="dark">
         <SiteHeader />
-
-
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-4 md:gap-6 py-4 md:py-6">
-            <h1 className="text-4xl md:text-5xl font-bold text-white tabular-nums !pl-6">
+            <h1 className="text-4xl md:text-5xl font-bold text-white pl-6">
               {getGreeting()}, {username}
             </h1>
             <h3 className="text-lg text-muted-foreground pl-6">
               Here's the market for today - {formatDate(new Date().toISOString())}
             </h3>
-
             <SectionCards />
           </div>
         </div>
-
       </SidebarInset>
-
-
-
-
     </SidebarProvider>
-
-
   );
 }
