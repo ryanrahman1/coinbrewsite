@@ -60,7 +60,7 @@ export default function CoinPage() {
       try {
         // fetch coin info
         const coinData = await cacheFetch(`coin-${symbol}`, async () => {
-          const res = await fetch(`https://coinbrew.vercel.app/api/coins/${symbol}`);
+          const res = await fetch(`http://127.0.0.1:8000/api/coins/${symbol}`);
           if (!res.ok) throw new Error("Failed to fetch coin");
           return res.json();
         });
@@ -69,7 +69,7 @@ export default function CoinPage() {
         // try fetch history
         try {
           const histRes = await fetch(
-            `https://coinbrew.vercel.app/api/coins/${symbol}/history?time_range=${timeRange}`
+            `http://127.0.0.1:8000/api/coins/${symbol}/history?time_range=${timeRange}`
           );
 
           if (histRes.ok) {
@@ -103,8 +103,8 @@ export default function CoinPage() {
 
     const endpoint =
       type === "buy"
-        ? "https://coinbrew.vercel.app/api/trade/buy"
-        : "https://coinbrew.vercel.app/api/trade/sell";
+        ? "http://127.0.0.1:8000/api/trade/buy"
+        : "http://127.0.0.1:8000/api/trade/sell";
 
     const body = {
       user_id: parseInt(userId),
@@ -122,7 +122,7 @@ export default function CoinPage() {
       if (!res.ok) throw new Error("Trade failed");
 
       await refreshCache([
-        () => fetch(`https://coinbrew.vercel.app/api/coins/${symbol}`),
+        () => fetch(`http://127.0.0.1:8000/api/coins/${symbol}`),
       ]);
       window.location.reload();
     } catch (err) {

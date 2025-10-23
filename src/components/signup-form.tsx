@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Loader2 } from "lucide-react"
+import { cacheFetch } from "@/lib/idbCache"
 
 export function SignupForm({
   className,
@@ -21,7 +22,7 @@ export function SignupForm({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
+    const token = localStorage.getItem("coinbrew_user_logged_in");
     if (token) {
       navigate("/home");
     }
@@ -44,8 +45,9 @@ export function SignupForm({
     setLoading(true);
 
     try {
-      const res = await fetch("https://coinbrew.vercel.app/api/auth/register", {
+      const res = await fetch("http://127.0.0.1:8000/api/v2/auth/register", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, email, password }),
       });
@@ -58,8 +60,16 @@ export function SignupForm({
       }
 
       const data = await res.json();
-      localStorage.setItem("access_token", data.access_token);
-      localStorage.setItem("username", username);
+      if (data.access_token) {
+        cacheFetch("user-profile", async () => {
+          const res = await fetch("http://127.0.0.1:8000/api/v2/user/me", {
+            credentials: "include",
+          });
+          if (!res.ok) throw new Error("Failed to fetch user profile");
+          return await res.json();
+        });
+        localStorage.setItem("coinbrew_user_logged_in", "true");
+      }
 
       navigate("/home", { replace: true });
     } catch (error) {

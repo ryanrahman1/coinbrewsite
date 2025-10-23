@@ -76,7 +76,7 @@ export default function Create() {
 
   const handleCreateCoin = async () => {
     setLoading(true)
-    const endpoint = "https://coinbrew.vercel.app/api/coins/create"
+    const endpoint = "http://127.0.0.1:8000/api/coins/create"
 
     const formData = new FormData()
     formData.append("name", name)

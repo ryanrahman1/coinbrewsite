@@ -21,6 +21,8 @@ import {
   TableCell,
 } from "@/components/ui/table"
 import { cacheFetch } from "@/lib/idbCache"
+import { type User } from "@/lib/types/User"
+import { userFromCache } from "@/lib/userFromCache"
 
 type PortfolioCoin = {
   coin_id: number
@@ -45,97 +47,81 @@ type PortfolioData = {
   total_value: number
 }
 
-type User = {
-  id: string
-  access_token: string
-}
-
 export default function PortfolioPage() {
   const navigate = useNavigate()
-  const [loggedIn, setLoggedIn] = useState(false)
-  const [user, setUser] = useState<User>()
+  const [user, setUser] = useState<User | null>(null)
   const [portfolio, setPortfolio] = useState<PortfolioData | null>(null)
   const [trades, setTrades] = useState<Trade[]>([])
-  const [username, setUsername] = useState("")
   const [loadingPortfolio, setLoadingPortfolio] = useState(true)
   const [loadingTrades, setLoadingTrades] = useState(true)
 
-  // Retrieve username from cookie
+  // 🧠 Load user from cache
   useEffect(() => {
-    const match = document.cookie.match(/(?:^|;\s*)userData=([^;]*)/)
-    if (match) {
-      try {
-        const decoded = decodeURIComponent(match[1])
-        const data = JSON.parse(decoded)
-        if (data?.user?.username) setUsername(data.user.username)
-      } catch (err) {
-        console.error("Failed to parse userData cookie:", err)
+    (async () => {
+      const cachedUser = await userFromCache()
+      if (cachedUser) {
+        setUser(cachedUser)
+      } else {
+        console.warn("⚠️ No cached user found, logging out...")
+        localStorage.removeItem("coinbrew_user_logged_in")
+        navigate("/")
       }
-    }
-  }, [])
-
-  // Authenticate user
-  useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    const userId = localStorage.getItem("user_id")
-    if (userId && token) {
-      setUser({ id: userId, access_token: token })
-      setLoggedIn(true)
-    } else {
-      setLoggedIn(false)
-      navigate("/", { replace: true })
-    }
+    })()
   }, [navigate])
 
-  // Fetch portfolio using cache
+  // 📊 Load portfolio + trades (backend returns combined)
   useEffect(() => {
     if (!user) return
 
     async function loadPortfolio() {
       setLoadingPortfolio(true)
+      setLoadingTrades(true)
       try {
-        const data = await cacheFetch<PortfolioData>(`portfolio-${user?.id}`, async () => {
-          const res = await fetch(`https://coinbrew.vercel.app/api/coins/portfolio/${user?.id}`)
-          if (!res.ok) throw new Error("Failed to fetch portfolio")
-          const json = await res.json()
-          return json.portfolio
+        const data = await cacheFetch<any>(`portfolio-${user?.id}`, async () => {
+          const res = await fetch(`http://127.0.0.1:8000/api/v2/user/${user?.id}/profile`, {
+            credentials: "include",
+          })
+          if (!res.ok) throw new Error(`Failed to fetch portfolio: ${res.status}`)
+          return res.json()
         })
-        setPortfolio(data)
+
+        console.log("📦 API data:", data)
+
+        // Re-map backend response shape into our local type
+        const mappedPortfolio: PortfolioData = {
+          balance: data.user?.balance ?? 0,
+          total_value: data.portfolio?.total_value ?? 0,
+          coins: Array.isArray(data.portfolio?.wallets)
+            ? data.portfolio.wallets.map((w: any) => ({
+                coin_id: w.coin_id ?? 0,
+                symbol: w.symbol ?? "N/A",
+                amount: Number(w.amount ?? 0),
+                current_price: Number(w.current_price ?? 0),
+                value: Number(w.value ?? 0),
+              }))
+            : [],
+        }
+
+        setPortfolio(mappedPortfolio)
+        setTrades(Array.isArray(data.recent_trades) ? data.recent_trades : [])
       } catch (err) {
-        console.error("Failed to load portfolio:", err)
+        console.error("❌ Failed to load portfolio data:", err)
       } finally {
         setLoadingPortfolio(false)
+        setLoadingTrades(false)
       }
     }
 
     loadPortfolio()
   }, [user])
 
-  // Fetch recent trades using cache
-  useEffect(() => {
-    if (!user) return
-
-    async function loadTrades() {
-      setLoadingTrades(true)
-      try {
-        const data = await cacheFetch<Trade[]>(`trades-${user?.id}`, async () => {
-          const res = await fetch(`https://coinbrew.vercel.app/api/coins/trades/${user?.id}?limit=10`)
-          if (!res.ok) throw new Error("Failed to fetch trades")
-          const json = await res.json()
-          return json.trades ?? []
-        })
-        setTrades(data)
-      } catch (err) {
-        console.error("Failed to load trades:", err)
-      } finally {
-        setLoadingTrades(false)
-      }
-    }
-
-    loadTrades()
-  }, [user])
-
-  if (!loggedIn) return null
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-screen text-gray-300">
+        Loading profile...
+      </div>
+    )
+  }
 
   return (
     <SidebarProvider
@@ -151,10 +137,10 @@ export default function PortfolioPage() {
 
         <div className="flex flex-1 flex-col @container/main px-4 py-4 md:py-6 lg:pl-6 gap-6">
           <h1 className="text-4xl md:text-5xl font-bold text-white tabular-nums">
-            Your Portfolio
+            {user.username}’s Portfolio
           </h1>
 
-          {/* Summary cards */}
+          {/* 💰 Summary cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="bg-gradient-to-t from-primary/5 to-card">
               <CardHeader>
@@ -164,6 +150,7 @@ export default function PortfolioPage() {
                 </CardTitle>
               </CardHeader>
             </Card>
+
             <Card className="bg-gradient-to-t from-primary/5 to-card">
               <CardHeader>
                 <CardDescription className="text-gray-400 text-sm">Cash Balance</CardDescription>
@@ -172,46 +159,56 @@ export default function PortfolioPage() {
                 </CardTitle>
               </CardHeader>
             </Card>
+
             <Card className="bg-gradient-to-t from-primary/5 to-card">
               <CardHeader>
                 <CardDescription className="text-gray-400 text-sm">Coins Value</CardDescription>
                 <CardTitle className="text-white text-2xl">
-                  ${portfolio ? (portfolio.total_value - portfolio.balance).toLocaleString() : "0"}
+                  $
+                  {portfolio
+                    ? (portfolio.total_value - portfolio.balance).toLocaleString()
+                    : "0"}
                 </CardTitle>
               </CardHeader>
             </Card>
           </div>
 
-          {/* Holdings table */}
+          {/* 📈 Holdings Table */}
           <Card className="bg-[#111] border border-neutral-800">
             <CardHeader>
               <CardTitle className="text-xl text-white">Holdings</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead>Value</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {portfolio?.coins.map((coin) => (
-                    <TableRow key={coin.coin_id}>
-                      <TableCell>{coin.symbol}</TableCell>
-                      <TableCell>{coin.amount.toLocaleString()}</TableCell>
-                      <TableCell>${coin.current_price.toFixed(4)}</TableCell>
-                      <TableCell>${coin.value.toLocaleString()}</TableCell>
+              {loadingPortfolio ? (
+                <p className="text-gray-400">Loading portfolio...</p>
+              ) : portfolio?.coins.length ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Symbol</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Value</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {portfolio.coins.map((coin) => (
+                      <TableRow key={coin.coin_id}>
+                        <TableCell>{coin.symbol}</TableCell>
+                        <TableCell>{coin.amount.toLocaleString()}</TableCell>
+                        <TableCell>${coin.current_price.toFixed(4)}</TableCell>
+                        <TableCell>${coin.value.toLocaleString()}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="text-gray-400">No holdings yet.</p>
+              )}
             </CardContent>
           </Card>
 
-          {/* Recent trades */}
+          {/* 🕒 Recent Trades */}
           <Card className="bg-[#111] border border-neutral-800">
             <CardHeader>
               <CardTitle className="text-xl text-white">Recent Transactions</CardTitle>
@@ -235,7 +232,11 @@ export default function PortfolioPage() {
                   <TableBody>
                     {trades.map((trade) => (
                       <TableRow key={trade.id}>
-                        <TableCell className={trade.trade_type === "buy" ? "text-green-400" : "text-red-400"}>
+                        <TableCell
+                          className={
+                            trade.trade_type === "buy" ? "text-green-400" : "text-red-400"
+                          }
+                        >
                           {trade.trade_type.toUpperCase()}
                         </TableCell>
                         <TableCell>{trade.coin_symbol}</TableCell>

@@ -23,32 +23,27 @@ export function SectionCards() {
     async function loadCoins() {
       setLoading(true)
       try {
-        // Fetch top 3 coins with caching
+        // get top 3 coins
         const coinList = await cacheFetch<Coin[]>("top-coins", async () => {
-          const res = await fetch("https://coinbrew.vercel.app/api/coins/all", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sort_by: "market_cap", limit: 3 }),
+          const res = await fetch("http://127.0.0.1:8000/api/v2/coins?limit=3", {
+            credentials: "include",
           })
           if (!res.ok) throw new Error("Failed to fetch coins")
-          const data = await res.json()
-          return data.coins
+          return await res.json()
         })
 
-        // Fetch usernames for creators individually and cache them
+        // fetch usernames for each creator
         const coinsWithUsers = await Promise.all(
-          coinList.map(async (coin: Coin) => {
-            const username = await cacheFetch<string>(`user-${coin.creator_id}`, async () => {
-              try {
-                const res = await fetch(`https://coinbrew.vercel.app/api/coins/user/${coin.creator_id}`)
-                if (!res.ok) throw new Error("Failed to fetch user")
-                const data = await res.json()
-                return data.user.username
-              } catch {
-                return "unknown"
-              }
-            })
-            return { ...coin, username }
+          coinList.map(async (coin) => {
+            try {
+              const res = await fetch(`http://127.0.0.1:8000/api/v2/user/${coin.creator_id}/username`, {
+                credentials: "include",
+              })
+              const data = await res.json()
+              return { ...coin, username: data.username }
+            } catch {
+              return { ...coin, username: "unknown" }
+            }
           })
         )
 
@@ -72,26 +67,28 @@ export function SectionCards() {
   }
 
   return (
-    <div className="*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 px-4 lg:px-6 @xl/main:grid-cols-3">
       {coins.map((coin, idx) => (
         <Card key={idx} className="@container/card">
           <CardHeader>
             <CardDescription>
               <div className="flex items-center gap-2">
-                <img src={coin.img_url} alt={coin.symbol} className="w-8 h-8 rounded-full" />
-                <span>
-                  {coin.name} - @{coin.username}
+                <img
+                  src={coin.img_url}
+                  alt={coin.symbol}
+                  className="w-8 h-8 rounded-full object-cover"
+                />
+                <span className="text-sm">
+                  {coin.name} — @{coin.username}
                 </span>
               </div>
             </CardDescription>
             <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-              ${coin.current_price.toFixed(4)}
+              ${coin.current_price.toFixed(6)}
             </CardTitle>
           </CardHeader>
-          <CardFooter className="flex-col items-start gap-1.5 text-sm">
-            <div className="text-muted-foreground">
-              Total Supply: {coin.total_supply.toLocaleString()}
-            </div>
+          <CardFooter className="flex-col items-start gap-1.5 text-sm text-muted-foreground">
+            Total Supply: {coin.total_supply.toLocaleString()}
           </CardFooter>
         </Card>
       ))}

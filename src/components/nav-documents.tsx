@@ -13,7 +13,7 @@ import {
 import { Link } from "react-router-dom";
 
 async function fetchPortData(userId: string): Promise<{ totalValue: string; coinValue: string }> {
-  const res = await fetch(`https://coinbrew.vercel.app/api/coins/portfolio/${userId}`, {
+  const res = await fetch(`http://127.0.0.1:8000/api/coins/portfolio/${userId}`, {
     method: "GET",
     headers: { "Content-Type": "application/json" },
   });

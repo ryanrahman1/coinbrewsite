@@ -97,7 +97,7 @@ export default function MarketPage() {
       if (newMin !== "") params.append("min_price", newMin.toString())
       if (newMax !== "") params.append("max_price", newMax.toString())
       if (newSort !== "") params.append("sort_by", newSort)
-      const res = await fetch(`https://coinbrew.vercel.app/api/coins/all?${params.toString()}`, {
+      const res = await fetch(`http://127.0.0.1:8000/api/coins/all?${params.toString()}`, {
         method: "POST",
       })
       const data = await res.json()

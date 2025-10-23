@@ -4,30 +4,14 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { SectionCards } from "@/components/section-cards";
-import { cacheFetch } from "@/lib/idbCache";
-
-type Coin = {
-  created_at: string;
-  id: number;
-  name: string;
-  symbol: string;
-  current_price: number;
-  price_change_percentage: number;
-  circulating_supply: number;
-};
-
-type User = {
-  id: string;
-  access_token: string;
-};
+import { cacheFetch } from "@/lib/idbCache"; // ✅ need this, not just getCache
+import { userFromCache } from "@/lib/userFromCache";
+import { type User } from "@/lib/types/User";
 
 export default function Home() {
   const navigate = useNavigate();
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [user, setUser] = useState<User>();
-  const [coins, setCoins] = useState<Coin[]>([]);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [username, setUsername] = useState("");
 
   const formatDate = (dateString: string) => {
     const options: Intl.DateTimeFormatOptions = { year: "numeric", month: "long", day: "numeric" };
@@ -41,79 +25,72 @@ export default function Home() {
     return "Good evening";
   };
 
+  // 🧠 Try loading from cache first
   useEffect(() => {
-    if (!loggedIn || !user?.id) return;
-
-    const cached = localStorage.getItem("coinbrew_user_info");
-    if (cached) {
-      setUsername(JSON.parse(cached).usern);
-      return;
-    }
-
-    async function fetchUsername() {
+    (async () => {
       try {
-        const res = await fetch(`https://coinbrew.vercel.app/api/coins/user/${user?.id}`);
-        if (!res.ok) throw new Error("Failed to fetch user data");
-
-        const data = await res.json();
-        const usern = data.username;
-        const email = data.email;
-
-        localStorage.setItem("coinbrew_user_info", JSON.stringify({ usern, email }));
-        setUsername(usern);
+        const cachedUser = await userFromCache();
+        if (cachedUser) {
+          setUser(cachedUser);
+        } else {
+          console.warn("No cached user found, logging out...");
+          localStorage.removeItem("coinbrew_user_logged_in");
+          navigate("/");
+        }
       } catch (err) {
-        console.error("Failed to fetch username:", err);
-      }
-    }
-
-    fetchUsername();
-  }, [loggedIn, user]);
-
-
-
-
-  useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    const userId = localStorage.getItem("user_id");
-
-    if (userId && token) {
-      setUser({ id: userId, access_token: token });
-      setLoggedIn(true);
-    } else {
-      setLoggedIn(false);
-      navigate("/", { replace: true });
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    if (!loggedIn) return;
-
-    async function fetchCoins() {
-      const res = await fetch("https://coinbrew.vercel.app/api/coins/all", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ min_price: 0 }),
-      });
-      if (!res.ok) throw new Error("Failed to fetch coins");
-      return res.json();
-    }
-
-    async function loadCoins() {
-      try {
-        setLoading(true);
-        const data = await cacheFetch("market-coins", fetchCoins);
-        setCoins(data.coins);
-      } catch (err) {
-        console.error("Error loading market data:", err);
+        console.error("Error reading cached user:", err);
+        navigate("/");
       } finally {
         setLoading(false);
       }
+    })();
+  }, [navigate]);
+
+  // 🔁 Once we have user or if cache empty, refetch and recache from /me
+  useEffect(() => {
+    if (loading) return; // wait until first cache check done
+
+    async function fetchAndCacheUser() {
+      try {
+        console.log("Fetching user /me...");
+        const res = await fetch("http://127.0.0.1:8000/api/v2/user/me", {
+          method: "GET",
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          console.warn("Failed to fetch user profile:", res.status);
+          if (res.status === 401) {
+            localStorage.removeItem("coinbrew_user_logged_in");
+            navigate("/");
+          }
+          return;
+        }
+
+        const profile: User = await res.json();
+
+        // cacheFetch ensures caching logic is consistent
+        await cacheFetch(`user-profile-${profile.id}`, async () => profile);
+
+        // set both React state and base user cache (for other pages)
+        setUser(profile);
+
+        console.log("✅ User profile updated + cached:", profile.username);
+      } catch (err) {
+        console.error("Error fetching user /me:", err);
+      }
     }
 
-    loadCoins();
-  }, [loggedIn]);
+    fetchAndCacheUser();
+  }, [loading, navigate]);
 
-  if (!loggedIn) return null;
+  if (loading || !user) {
+    return (
+      <div className="flex h-screen items-center justify-center text-gray-300">
+        Loading profile...
+      </div>
+    );
+  }
 
   return (
     <SidebarProvider
@@ -131,7 +108,7 @@ export default function Home() {
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-4 md:gap-6 py-4 md:py-6">
             <h1 className="text-4xl md:text-5xl font-bold text-white pl-6">
-              {getGreeting()}, {username}
+              {getGreeting()}, {user.username || "Guest"}
             </h1>
             <h3 className="text-lg text-muted-foreground pl-6">
               Here's the market for today - {formatDate(new Date().toISOString())}

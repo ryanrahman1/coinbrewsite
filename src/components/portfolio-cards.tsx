@@ -29,7 +29,7 @@ export function PortfolioCards() {
     const fetchCoins = async () => {
       try {
         setLoading(true)
-        const coinRes = await fetch("https://coinbrew.vercel.app/api/coins/all", {
+        const coinRes = await fetch("http://127.0.0.1:8000/api/coins/all", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sort_by: "market_cap", limit: 3 }),
@@ -40,7 +40,7 @@ export function PortfolioCards() {
         const coinsWithUsers = await Promise.all(
           coins.map(async (coin: Coin) => {
             try {
-              const userRes = await fetch(`https://coinbrew.vercel.app/api/coins/user/${coin.creator_id}`)
+              const userRes = await fetch(`http://127.0.0.1:8000/api/coins/user/${coin.creator_id}`)
               const userData = await userRes.json()
               const username = userData.user.username
               return { ...coin, username }
